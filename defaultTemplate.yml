@@ -1,7 +1,5 @@
 external-addresses:
- - 172.123.234.1
- - 192.168.9.99
- - anytype.yojigen.tech
+ - 127.0.0.1
 
 any-sync-consensusnode:
   listen: any-sync-consensusnode
