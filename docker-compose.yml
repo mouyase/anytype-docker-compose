@@ -1,0 +1,192 @@
+services:
+  mongo:
+    image: mongo:4
+    restart: unless-stopped
+    command: ["--replSet", "rs0", "--port", "27017"]
+    volumes:
+      - ./storage/mongo/:/data/db
+    networks:
+      - network
+    healthcheck:
+      test: mongo --port 27017 --eval 'rs.initiate({"_id":"rs0","members":[{"_id":0,"host":"mongo:27017"}]})'
+      interval: 10s
+      start_period: 30s
+
+  redis:
+    image: redis/redis-stack-server:latest
+    restart: unless-stopped
+    command: ["redis-server", "--port", "6379", "--dir", "/data/", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction", "--protected-mode", "no", "--loadmodule", "/opt/redis-stack/lib/redisbloom.so"]
+    volumes:
+      - ./storage/redis/:/data/
+    networks:
+      - network
+    healthcheck:
+      test: [ "CMD", "redis-cli", "--raw", "-p", "6379", "incr", "ping" ]
+      interval: 10s
+      timeout: 30s
+      retries: 3
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    command: ["server", "/data", "--console-address", ":9001", "--address", ":9000"]
+    environment:
+      MINIO_ROOT_USER: "user"
+      MINIO_ROOT_PASSWORD: "password"
+    volumes:
+      - ./storage/minio:/data
+    healthcheck:
+      test: bash -c ':> /dev/tcp/127.0.0.1/9000' || exit 1
+      interval: 5s
+      timeout: 10s
+      retries: 3
+    networks:
+      network:
+        aliases:
+          - "minio-bucket.minio"
+
+  create-bucket:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    networks:
+      - network
+    entrypoint: >
+      /bin/sh -c "
+      until (/usr/bin/mc alias set minio http://minio:9000 'user' 'password') do echo '...waiting...' && sleep 1; done;
+      /usr/bin/mc mb minio/minio-bucket;
+      exit 0;
+      "
+
+  any-sync-consensusnode:
+    image: ghcr.io/anyproto/any-sync-consensusnode:latest
+    depends_on:
+      any-sync-coordinator:
+        condition: service_started
+    ports:
+      - "4530:4530"
+      - "5530:5530/udp"
+    volumes:
+      - ./etc/any-sync-consensusnode/:/etc/any-sync-consensusnode/
+      - ./storage/networkStore/any-sync-consensusnode/:/networkStore/
+    networks:
+      - network
+    deploy:
+      resources:
+        limits:
+          memory: 500M
+    restart: unless-stopped
+
+  any-sync-coordinator:
+    image: ghcr.io/anyproto/any-sync-coordinator:latest
+    depends_on:
+      mongo:
+        condition: service_healthy
+    ports:
+      - "4630:4630"
+      - "5630:4630/udp"
+    volumes:
+      - ./etc/any-sync-coordinator/:/etc/any-sync-coordinator/
+      - ./storage/networkStore/any-sync-coordinator/:/networkStore/
+    networks:
+      - network
+    deploy:
+      resources:
+        limits:
+          memory: 500M
+    restart: unless-stopped
+
+  any-sync-filenode:
+    image: ghcr.io/anyproto/any-sync-filenode:latest
+    depends_on:
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      any-sync-coordinator:
+        condition: service_started
+    ports:
+      - "4730:4730"
+      - "5730:5730/udp"
+    volumes:
+      - ./etc/any-sync-filenode/:/etc/any-sync-filenode/
+      - ./etc/.aws:/root/.aws:ro
+      - ./storage/networkStore/any-sync-filenode/:/networkStore/
+    networks:
+      - network
+    deploy:
+      resources:
+        limits:
+          memory: 500M
+    restart: unless-stopped
+
+  any-sync-node-1:
+    image: ghcr.io/anyproto/any-sync-node:latest
+    depends_on:
+      any-sync-coordinator:
+        condition: service_started
+    ports:
+      - "4430:4430"
+      - "5430:5430/udp"
+    volumes:
+      - ./etc/any-sync-node-1/:/etc/any-sync-node/
+      - ./storage/any-sync-node-1/:/storage/
+      - ./storage/networkStore/any-sync-node-1/:/networkStore/
+    networks:
+      - network
+    deploy:
+      resources:
+        limits:
+          memory: 500M
+    restart: unless-stopped
+
+  any-sync-node-2:
+    image: ghcr.io/anyproto/any-sync-node:latest
+    depends_on:
+      any-sync-coordinator:
+        condition: service_started
+    ports:
+      - "4431:4431"
+      - "5431:5431/udp"
+    volumes:
+      - ./etc/any-sync-node-2/:/etc/any-sync-node/
+      - ./storage/any-sync-node-2/:/storage/
+      - ./storage/networkStore/any-sync-node-2/:/networkStore/
+    networks:
+      - network
+    deploy:
+      resources:
+        limits:
+          memory: 500M
+    restart: unless-stopped
+
+  any-sync-node-3:
+    image: ghcr.io/anyproto/any-sync-node:latest
+    depends_on:
+      any-sync-coordinator:
+        condition: service_started
+    ports:
+      - "4432:4432"
+      - "5432:5432/udp"
+    volumes:
+      - ./etc/any-sync-node-3/:/etc/any-sync-node/
+      - ./storage/any-sync-node-3/:/storage/
+      - ./storage/networkStore/any-sync-node-3/:/networkStore/
+    networks:
+      - network
+    deploy:
+      resources:
+        limits:
+          memory: 500M
+    restart: unless-stopped
+
+networks:
+  network:
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.123.234.0/24
+          gateway: 172.123.234.1

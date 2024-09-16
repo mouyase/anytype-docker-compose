@@ -1,0 +1,47 @@
+external-addresses:
+ - 172.123.234.1
+ - 192.168.9.99
+ - anytype.yojigen.tech
+
+any-sync-consensusnode:
+  listen: any-sync-consensusnode
+  yamuxPort: 4530
+  quicPort: 5530
+  mongo:
+    connect: mongodb://mongo:27017/?w=majority
+    database: consensus
+
+any-sync-coordinator:
+  listen: any-sync-coordinator
+  yamuxPort: 4630
+  quicPort: 5630
+  mongo:
+    connect: mongodb://mongo:27017
+    database: coordinator
+  defaultLimits:
+    spaceMembersRead: 1000
+    spaceMembersWrite: 1000
+    sharedSpacesLimit: 1000
+
+any-sync-filenode:
+  listen: any-sync-filenode
+  yamuxPort: 4730
+  quicPort: 5730
+  s3Store:
+    endpoint: http://minio:9000
+    bucket: minio-bucket
+    indexBucket: minio-bucket
+    region: us-east-1
+    profile: default
+    forcePathStyle: true
+  redis:
+    url: redis://redis:6379?dial_timeout=3&read_timeout=6s
+  defaultLimit: 1099511627776
+
+any-sync-node:
+  listen:
+  - any-sync-node-1
+  - any-sync-node-2
+  - any-sync-node-3
+  yamuxPort: 4430
+  quicPort: 5430
